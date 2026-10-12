@@ -86,7 +86,7 @@ final class MTPBackend: DeviceBackend, @unchecked Sendable {
 
     /// USB iSerialNumber of the device at `bus`/`address` (libusb numbering:
     /// bus = locationID >> 24), read from IOKit.
-    private static func usbSerial(bus: UInt32, address: UInt8) -> String? {
+    static func usbSerial(bus: UInt32, address: UInt8) -> String? {
         var iterator: io_iterator_t = 0
         guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOUSBHostDevice"), &iterator) == KERN_SUCCESS else {
             return nil

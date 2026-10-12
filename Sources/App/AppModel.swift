@@ -57,6 +57,16 @@ final class AppModel {
     @ObservationIgnored private var reconciling = false
     @ObservationIgnored private var reconcileAgain = false
     @ObservationIgnored private var shuttingDown = false
+    @ObservationIgnored private let mtpPolicy = MTPOpenPolicy()
+    /// When each phone (by USB/hardware serial) was last seen over ADB.
+    @ObservationIgnored private var adbLastSeen: [String: Date] = [:]
+    /// When a mounted device first went missing; its location is kept for
+    /// `unmountGrace` so a USB reset doesn't unmount and remount it.
+    @ObservationIgnored private var vanishedAt: [String: Date] = [:]
+    /// A USB reset drops a phone for a second or two.
+    private static let unmountGrace: TimeInterval = 6
+    /// Longer than `unmountGrace`, so the ADB location is gone before MTP opens.
+    private static let adbMemory: TimeInterval = 10
 
     // ADB state
     private var adbRecords: [ADBHost.DeviceRecord] = []
@@ -118,6 +128,8 @@ final class AppModel {
 
     /// Starts/stops transports and the refresh timer to match settings.
     func applySettings() {
+        // Give adb a head start so a phone it can reach is never opened over MTP.
+        mtpPolicy.attachDelay = defaults.bool(forKey: SettingsKey.preferADB) && defaults.bool(forKey: SettingsKey.enableADB) ? 4 : 1.5
         if defaults.bool(forKey: SettingsKey.enableADB) {
             if adbTracker == nil {
                 let tracker = ADBTracker(
@@ -136,7 +148,7 @@ final class AppModel {
 
         if defaults.bool(forKey: SettingsKey.enableMTP) {
             if mtpMonitor == nil {
-                let monitor = MTPMonitor { [weak self] states in Task { @MainActor in self?.handleMTP(states) } }
+                let monitor = MTPMonitor(policy: mtpPolicy) { [weak self] states in Task { @MainActor in self?.handleMTP(states) } }
                 mtpMonitor = monitor
                 monitor.start()
             }
@@ -153,6 +165,7 @@ final class AppModel {
                 Task { @MainActor in self?.domains.refreshAll() }
             }
         }
+        updateMTPPolicy()
         reconcile()
     }
 
@@ -176,6 +189,7 @@ final class AppModel {
             && adbFailures[record.serial] == nil {
             connectADB(record)
         }
+        updateMTPPolicy()
         reconcile()
     }
 
@@ -194,6 +208,7 @@ final class AppModel {
                 case .failure(let error):
                     self.adbFailures[record.serial] = error.localizedDescription
                 }
+                self.updateMTPPolicy()
                 self.reconcile()
             }
         }
@@ -228,6 +243,53 @@ final class AppModel {
         return (adb + mtp).filter { !userUnmounted.contains($0.id) }
     }
 
+    /// `desiredMounts`, plus mounted devices that went missing less than
+    /// `unmountGrace` ago: a USB reset (or ADB reconnecting) briefly drops a
+    /// phone, and unmounting would make Finder and open documents reload.
+    private func desiredWithGrace() -> [DeviceInfo] {
+        var desired = desiredMounts
+        let present = Set(desired.map(\.id))
+        let now = Date()
+        vanishedAt = vanishedAt.filter { !present.contains($0.key) && domains.mounted[$0.key] != nil }
+        for (id, info) in domains.mounted where !present.contains(id) && !userUnmounted.contains(id) {
+            let since = vanishedAt[id] ?? now
+            vanishedAt[id] = since
+            let remaining = Self.unmountGrace - now.timeIntervalSince(since)
+            if remaining > 0 {
+                desired.append(info)
+                scheduleRecheck(after: remaining + 0.2)
+            }
+        }
+        return desired
+    }
+
+    private func scheduleRecheck(after delay: TimeInterval) {
+        Task {
+            try? await Task.sleep(for: .seconds(delay))
+            updateMTPPolicy()
+            reconcile()
+        }
+    }
+
+    /// Phones seen over ADB within `adbMemory` are never opened over MTP (when
+    /// ADB is preferred). Opening MTP resets the phone's USB, which drops ADB,
+    /// which used to flip the Finder location between ADB and MTP endlessly.
+    private func updateMTPPolicy() {
+        let now = Date()
+        let ready = Set(adbRecords.filter { $0.state == "device" && !$0.isNetwork }.map(\.serial))
+            .union(adbHardwareSerials)
+        for serial in ready { adbLastSeen[serial] = now }
+        adbLastSeen = adbLastSeen.filter { now.timeIntervalSince($0.value) < Self.adbMemory }
+        let preferADB = defaults.bool(forKey: SettingsKey.preferADB) && defaults.bool(forKey: SettingsKey.enableADB)
+        let change = mtpPolicy.setBlocked(preferADB ? Set(adbLastSeen.keys) : [])
+        if !change.added.isEmpty { mtpMonitor?.closeBlocked() }
+        if !change.removed.isEmpty { mtpMonitor?.retry() }
+        // Unblock remembered phones once their memory expires.
+        if let oldest = adbLastSeen.filter({ !ready.contains($0.key) }).values.min() {
+            scheduleRecheck(after: Self.adbMemory - now.timeIntervalSince(oldest) + 0.2)
+        }
+    }
+
     /// Brings File Provider domains in line with connected devices. Serialized:
     /// calls during a running pass trigger one more pass.
     private func reconcile() {
@@ -241,7 +303,7 @@ final class AppModel {
             repeat {
                 reconcileAgain = false
                 let before = Set(domains.mounted.keys)
-                await domains.sync(desired: desiredMounts)
+                await domains.sync(desired: desiredWithGrace())
                 mountedIDs = Set(domains.mounted.keys)
                 if defaults.bool(forKey: SettingsKey.openFinderOnMount) {
                     for id in mountedIDs.subtracting(before) { await domains.openInFinder(id) }

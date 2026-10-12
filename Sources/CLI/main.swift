@@ -29,7 +29,7 @@ func adbRecords() throws -> [ADBHost.DeviceRecord] {
 func mtpStates() -> [MTPMonitor.DeviceState] {
     let semaphore = DispatchSemaphore(value: 0)
     nonisolated(unsafe) var result: [MTPMonitor.DeviceState] = []
-    let monitor = MTPMonitor { states in
+    let monitor = MTPMonitor(policy: MTPOpenPolicy()) { states in
         result = states
         semaphore.signal()
     }

@@ -4,6 +4,36 @@ import IOKit
 import IOKit.usb
 import os
 
+/// USB serials of phones the MTP monitor must leave alone (they are in use
+/// over ADB). Opening MTP takes the phone from macOS's camera service and can
+/// reset its USB connection, which knocks ADB offline; so phones reachable over
+/// ADB are never opened over MTP, not merely hidden. Thread-safe.
+final class MTPOpenPolicy: @unchecked Sendable {
+    private let lock = NSLock()  // guards `blocked` and `delay`
+    private var blocked: Set<String> = []
+    private var delay: TimeInterval = 1.5
+
+    /// How long to wait after a USB attach (or at start) before opening MTP.
+    /// Longer when ADB is preferred, so adb can report the phone first.
+    var attachDelay: TimeInterval {
+        get { lock.withLock { delay } }
+        set { lock.withLock { delay = newValue } }
+    }
+
+    func isBlocked(_ serial: String?) -> Bool {
+        guard let serial else { return false }
+        return lock.withLock { blocked.contains(serial) }
+    }
+
+    /// Returns the serials that are newly blocked and newly unblocked.
+    func setBlocked(_ serials: Set<String>) -> (added: Set<String>, removed: Set<String>) {
+        lock.withLock {
+            defer { blocked = serials }
+            return (serials.subtracting(blocked), blocked.subtracting(serials))
+        }
+    }
+}
+
 /// Watches USB hot-plug events via IOKit and opens MTP devices with libmtp.
 final class MTPMonitor: @unchecked Sendable {
     enum DeviceState: Sendable {
@@ -13,6 +43,7 @@ final class MTPMonitor: @unchecked Sendable {
     }
 
     private let log = Logger(subsystem: PortHoleConstants.logSubsystem, category: "mtp")
+    private let policy: MTPOpenPolicy
     private let onChange: @Sendable ([DeviceState]) -> Void
     private let notifyQueue = DispatchQueue(label: "PortHole.usb-notify")
     private var port: IONotificationPortRef?
@@ -29,14 +60,15 @@ final class MTPMonitor: @unchecked Sendable {
     private static let recoveryWindow: TimeInterval = 15
     private var enabled = false
 
-    init(onChange: @escaping @Sendable ([DeviceState]) -> Void) {
+    init(policy: MTPOpenPolicy, onChange: @escaping @Sendable ([DeviceState]) -> Void) {
+        self.policy = policy
         self.onChange = onChange
     }
 
     func start() {
         MTPQueue.queue.async { self.enabled = true }
         notifyQueue.async { self.installNotifications() }
-        scheduleScan(after: 0)
+        scheduleScan(after: policy.attachDelay)
     }
 
     /// Closes every device so other apps can use them.
@@ -61,6 +93,19 @@ final class MTPMonitor: @unchecked Sendable {
     func retry() {
         MTPQueue.queue.async { self.failed = [:] }
         scheduleScan(after: 0)
+    }
+
+    /// Closes open devices the policy now blocks (the phone appeared over ADB).
+    func closeBlocked() {
+        MTPQueue.queue.async {
+            for (key, backend) in self.opened where self.policy.isBlocked(backend.info.serial) {
+                self.log.info("Releasing \(backend.info.name, privacy: .public): in use over ADB")
+                backend.closeOnQueue()
+                self.opened[key] = nil
+            }
+            self.recovering = self.recovering.filter { !self.policy.isBlocked($0.value.backend.info.serial) }
+            self.emit()
+        }
     }
 
     /// Retries after killing ptpcamerad (see `killCameraAgent`).
@@ -94,7 +139,7 @@ final class MTPMonitor: @unchecked Sendable {
             let monitor = Unmanaged<MTPMonitor>.fromOpaque(refcon).takeUnretainedValue()
             MTPMonitor.drain(iterator)
             // Phones re-enumerate a moment after attach and when the USB mode changes.
-            monitor.scheduleScan(after: 1.5)
+            monitor.scheduleScan(after: monitor.policy.attachDelay)
         }
         for type in [kIOFirstMatchNotification, kIOTerminatedNotification] {
             var iterator: io_iterator_t = 0
@@ -151,7 +196,10 @@ final class MTPMonitor: @unchecked Sendable {
             recovering[id] = nil
         }
 
-        let fresh = present.filter { opened[$0.key] == nil && failed[$0.key] == nil }
+        let fresh = present.filter { key, raw in
+            opened[key] == nil && failed[key] == nil
+                && !policy.isBlocked(MTPBackend.usbSerial(bus: raw.bus_location, address: raw.devnum))
+        }
         // Open immediately after freeing the phone, before ptpcamerad relaunches.
         if !fresh.isEmpty { Self.killCameraAgent() }
         for (key, raw) in fresh {
