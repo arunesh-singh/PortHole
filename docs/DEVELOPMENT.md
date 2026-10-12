@@ -221,7 +221,7 @@ CI (`.github/workflows/ci.yml`) builds the app, the extension and the CLI for bo
 git tag v0.2.0 && git push origin v0.2.0
 ```
 
-`.github/workflows/release.yml` builds a universal ad-hoc DMG and publishes it as a GitHub pre-release. Locally, `scripts/release.sh --adhoc [--publish]` does the same.
+`.github/workflows/release.yml` builds a universal ad-hoc DMG and publishes it as the latest GitHub release. Locally, `scripts/release.sh --adhoc [--publish]` does the same.
 
 **Developer ID release (no Gatekeeper warning).** One-time setup:
 1. A **Developer ID Application** certificate for `DEVELOPMENT_TEAM` in your login keychain.
@@ -238,3 +238,4 @@ Then run `scripts/release.sh --publish`. It archives, exports with Developer ID,
 - **libmtp resets Android phones on close.** Every `porthole mtp …` CLI call ends with a USB reset, which also drops adb for a moment. The app keeps devices open, so this only happens on unplug or quit.
 - **MTP root parent handle.** New objects at a storage root need parent `0xFFFFFFFF` (Android rejects `0`); `MoveObject` uses `0` for the root.
 - **`pkill` is not Quit.** Killing the app skips domain cleanup. On the next launch the surviving domains are re-adopted, and their databases are kept on purpose.
+- **`removeAllDomains()` lies on recent macOS.** It reports success but leaves domains mounted, so `DomainController.removeAll()` removes each domain individually. And during Quit no reconcile pass may run (`AppModel.shuttingDown`); otherwise stopping the transports re-adds a domain behind our back.

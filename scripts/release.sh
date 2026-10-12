@@ -142,7 +142,7 @@ SHA-256: `SHA_VALUE`
 EOF
         sed -i '' -e "s|GITHUB_REPO|$GITHUB_REPO|" -e "s|SHA_VALUE|$SHA|" "$NOTES"
         gh release create "v$VERSION" "$DMG" --repo "$GITHUB_REPO" --title "PortHole $VERSION" \
-            --notes-file "$NOTES" --prerelease
+            --notes-file "$NOTES"
     else
         gh release create "v$VERSION" "$DMG" --repo "$GITHUB_REPO" --title "PortHole $VERSION" --generate-notes
     fi
