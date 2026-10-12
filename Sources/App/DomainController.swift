@@ -42,11 +42,33 @@ final class DomainController {
         mounted[id] = nil
         let domain = NSFileProviderDomain(identifier: NSFileProviderDomainIdentifier(id), displayName: id)
         do {
-            _ = try await NSFileProviderManager.remove(domain, mode: .preserveDirtyUserData)
-            PortHoleConstants.resetDomainState(domainID: id)
+            try await unmount(domain, settleFor: 3)
             log.info("Unmounted \(id, privacy: .public)")
         } catch {
             log.error("Removing domain \(id, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+        }
+    }
+
+    /// Lets pending uploads finish (up to `timeout`), then removes the domain
+    /// and its local copies. `.removeAll` on purpose: `.preserveDirtyUserData`
+    /// moves every *downloaded* file into a dated "PortHole-… (date)" folder in
+    /// ~/Library/CloudStorage on each unmount, not just unsynced edits.
+    private func unmount(_ domain: NSFileProviderDomain, settleFor timeout: TimeInterval) async throws {
+        if timeout > 0, let manager = NSFileProviderManager(for: domain) {
+            await Self.waitForStabilization(manager, timeout: timeout)
+        }
+        _ = try await NSFileProviderManager.remove(domain, mode: .removeAll)
+        PortHoleConstants.resetDomainState(domainID: domain.identifier.rawValue)
+    }
+
+    /// Returns when the domain has no pending work or `timeout` elapses. Not a
+    /// task group: `waitForStabilization` ignores cancellation, and a group
+    /// would wait for it forever.
+    private static func waitForStabilization(_ manager: NSFileProviderManager, timeout: TimeInterval) async {
+        await withCheckedContinuation { (continuation: CheckedContinuation<Void, Never>) in
+            let once = OneShot { continuation.resume() }
+            manager.waitForStabilization { _ in once.fire() }
+            DispatchQueue.global().asyncAfter(deadline: .now() + timeout) { once.fire() }
         }
     }
 
@@ -54,8 +76,7 @@ final class DomainController {
     func removeStaleDomains() async {
         guard let domains = try? await NSFileProviderManager.domains() else { return }
         for domain in domains where mounted[domain.identifier.rawValue] == nil {
-            _ = try? await NSFileProviderManager.remove(domain, mode: .preserveDirtyUserData)
-            PortHoleConstants.resetDomainState(domainID: domain.identifier.rawValue)
+            try? await unmount(domain, settleFor: 0)
         }
     }
 
@@ -67,11 +88,10 @@ final class DomainController {
         let domains = (try? await NSFileProviderManager.domains()) ?? []
         for domain in domains {
             do {
-                _ = try await NSFileProviderManager.remove(domain, mode: .preserveDirtyUserData)
+                try await unmount(domain, settleFor: 10)
             } catch {
                 log.error("Removing \(domain.identifier.rawValue, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
             }
-            PortHoleConstants.resetDomainState(domainID: domain.identifier.rawValue)
         }
         log.info("Removed \(domains.count) domain(s)")
     }
@@ -126,5 +146,21 @@ final class DomainController {
     static func openExtensionSettings() {
         let url = URL(string: "x-apple.systempreferences:com.apple.ExtensionsPreferences?extensionPointIdentifier=com.apple.fileprovider-nonui")!
         NSWorkspace.shared.open(url)
+    }
+}
+
+/// Runs its action on the first `fire()` only; later calls are ignored.
+private final class OneShot: @unchecked Sendable {
+    private let lock = NSLock()  // guards `action`
+    private var action: (() -> Void)?
+
+    init(_ action: @escaping () -> Void) { self.action = action }
+
+    func fire() {
+        let pending = lock.withLock { () -> (() -> Void)? in
+            defer { action = nil }
+            return action
+        }
+        pending?()
     }
 }

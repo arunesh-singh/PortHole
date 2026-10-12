@@ -70,6 +70,13 @@ struct DeviceClient {
         try entry(.move(device: deviceID, from: from.string, to: to.string))
     }
 
+    func thumbnail(_ path: VPath, maxPixelSize: Int) throws -> Data? {
+        guard case .data(let data) = try call(.thumbnail(device: deviceID, path: path.string, maxPixelSize: maxPixelSize)) else {
+            throw WireError(.io, "Unexpected reply")
+        }
+        return data
+    }
+
     private static func transferURL(for name: String) throws -> URL {
         let directory = PortHoleConstants.transfersURL
         try FileManager.default.createDirectory(at: directory, withIntermediateDirectories: true)

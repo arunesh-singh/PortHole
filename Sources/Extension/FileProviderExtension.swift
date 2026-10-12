@@ -10,6 +10,8 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
     private let store: ItemStore?
     private let storeError: Error?
     private let queue = DispatchQueue(label: "PortHole.extension", attributes: .concurrent)
+    /// Serial, so a screenful of thumbnails doesn't starve file opens.
+    private let thumbnailQueue = DispatchQueue(label: "PortHole.thumbnails", qos: .utility)
 
     required init(domain: NSFileProviderDomain) {
         self.domain = domain
@@ -201,5 +203,45 @@ final class FileProviderExtension: NSObject, NSFileProviderReplicatedExtension {
         }
         guard let path = store.path(for: containerItemIdentifier) else { throw NSFileProviderError(.noSuchItem) }
         return FolderEnumerator(path: path, client: client, store: store)
+    }
+}
+
+// MARK: - Thumbnails
+
+extension FileProviderExtension: NSFileProviderThumbnailing {
+    /// Finder asks for thumbnails of visible items that aren't downloaded yet.
+    /// Each is produced by the app (MTP GetThumb, EXIF, or a scaled download).
+    func fetchThumbnails(for itemIdentifiers: [NSFileProviderItemIdentifier], requestedSize size: CGSize,
+                         perThumbnailCompletionHandler: @escaping (NSFileProviderItemIdentifier, Data?, Error?) -> Void,
+                         completionHandler: @escaping (Error?) -> Void) -> Progress {
+        let progress = Progress(totalUnitCount: Int64(itemIdentifiers.count))
+        // macOS asks for up to 2048 px; 512 covers Finder's largest icons and
+        // keeps thumbnails cheap (an embedded EXIF/MTP thumbnail instead of a full download).
+        let maxPixelSize = min(Int(max(size.width, size.height).rounded(.up)), 512)
+        log.info("Thumbnails requested: \(itemIdentifiers.count) at \(maxPixelSize)px")
+        thumbnailQueue.async { [self] in
+            guard let store = try? requireStore() else {
+                return completionHandler(fileProviderError(storeError ?? WireError(.io, "Item store unavailable")))
+            }
+            for identifier in itemIdentifiers {
+                if progress.isCancelled {
+                    return completionHandler(CocoaError(.userCancelled))
+                }
+                defer { progress.completedUnitCount += 1 }
+                guard let path = store.path(for: identifier), ThumbnailSupport.hasThumbnail(path.name) else {
+                    perThumbnailCompletionHandler(identifier, nil, nil)
+                    continue
+                }
+                do {
+                    let data = try client.thumbnail(path, maxPixelSize: maxPixelSize)
+                    log.debug("Thumbnail \(path.name, privacy: .public): \(data?.count ?? 0) bytes")
+                    perThumbnailCompletionHandler(identifier, data, nil)
+                } catch {
+                    perThumbnailCompletionHandler(identifier, nil, fileProviderError(error))
+                }
+            }
+            completionHandler(nil)
+        }
+        return progress
     }
 }

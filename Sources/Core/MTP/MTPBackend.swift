@@ -1,5 +1,6 @@
 import CMTP
 import Foundation
+import IOKit
 
 /// All libmtp calls go through this queue: libmtp keeps per-process state and
 /// is not documented as thread-safe.
@@ -48,12 +49,17 @@ final class MTPBackend: DeviceBackend, @unchecked Sendable {
     let info: DeviceInfo
     /// "bus-devnum", identifies the USB attachment.
     let usbKey: String
+    /// Called (asynchronously, on MTPQueue) the first time an operation fails
+    /// because the MTP session is gone, e.g. after macOS's ptpcamerad reset the
+    /// phone's USB connection. The monitor reopens the device in response.
+    var onSessionLost: (@Sendable (MTPBackend) -> Void)?
 
     // Everything below is touched only on MTPQueue.
     private var device: UnsafeMutablePointer<LIBMTP_mtpdevice_t>?
     private let raw: UnsafeMutablePointer<LIBMTP_raw_device_t>
     private var storages: [(name: String, id: UInt32)] = []
     private var cache: [VPath: Ref] = [:]
+    private var sessionLost = false
 
     /// Opens the device. Must run on MTPQueue; takes ownership of `raw`.
     init(raw: UnsafeMutablePointer<LIBMTP_raw_device_t>, usbKey: String) throws {
@@ -65,12 +71,38 @@ final class MTPBackend: DeviceBackend, @unchecked Sendable {
             throw WireError(.deviceUnavailable, "Could not open the MTP device")
         }
         self.device = device
-        let serial = Self.takeString(LIBMTP_Get_Serialnumber(device)) ?? usbKey
+        // Prefer the USB serial: Android reports a hashed serial over MTP, but the
+        // USB one equals the adb serial, which lets the app spot the same phone
+        // on both transports.
+        let serial = Self.usbSerial(bus: raw.pointee.bus_location, address: raw.pointee.devnum)
+            ?? Self.takeString(LIBMTP_Get_Serialnumber(device))
+            ?? usbKey
         let model = Self.takeString(LIBMTP_Get_Modelname(device))
             ?? Self.takeString(LIBMTP_Get_Friendlyname(device))
             ?? "Android device"
         info = DeviceInfo(id: DeviceInfo.makeID(.mtp, serial), name: model, transport: .mtp, serial: serial)
         refreshStorages()
+    }
+
+    /// USB iSerialNumber of the device at `bus`/`address` (libusb numbering:
+    /// bus = locationID >> 24), read from IOKit.
+    private static func usbSerial(bus: UInt32, address: UInt8) -> String? {
+        var iterator: io_iterator_t = 0
+        guard IOServiceGetMatchingServices(kIOMainPortDefault, IOServiceMatching("IOUSBHostDevice"), &iterator) == KERN_SUCCESS else {
+            return nil
+        }
+        defer { IOObjectRelease(iterator) }
+        while case let service = IOIteratorNext(iterator), service != 0 {
+            defer { IOObjectRelease(service) }
+            func property(_ key: String) -> Any? {
+                IORegistryEntryCreateCFProperty(service, key as CFString, kCFAllocatorDefault, 0)?.takeRetainedValue()
+            }
+            guard let location = property("locationID") as? UInt32, location >> 24 == bus,
+                  let usbAddress = property("USB Address") as? Int, usbAddress == Int(address) else { continue }
+            let serial = (property("USB Serial Number") ?? property("kUSBSerialNumberString")) as? String
+            return serial.flatMap { $0.isEmpty ? nil : $0 }
+        }
+        return nil
     }
 
     func close() {
@@ -99,7 +131,9 @@ final class MTPBackend: DeviceBackend, @unchecked Sendable {
         return device
     }
 
-    /// Drains libmtp's error stack into an error.
+    /// Drains libmtp's error stack into an error. Transport-level failures mean
+    /// the session is gone: those report `.deviceUnavailable` and trigger
+    /// `onSessionLost` once.
     private func failure(_ what: String, code: WireError.Code = .io) -> WireError {
         var messages: [String] = []
         if let device {
@@ -111,12 +145,22 @@ final class MTPBackend: DeviceBackend, @unchecked Sendable {
             LIBMTP_Clear_Errorstack(device)
         }
         let detail = messages.last.map { ": \($0)" } ?? ""
-        let lower = detail.lowercased()
+        let lower = messages.joined(separator: " ").lowercased()
         if lower.contains("storage full") || lower.contains("no space") { return WireError(.io, "Device storage is full") }
-        if lower.contains("no device") || lower.contains("usb") && lower.contains("error") {
+        if lower.contains("ptp i/o error") || lower.contains("no device") || lower.contains("libusb")
+            || (lower.contains("usb") && lower.contains("error")) {
+            markSessionLost()
             return WireError(.deviceUnavailable, "\(what)\(detail)")
         }
         return WireError(code, "\(what)\(detail)")
+    }
+
+    private func markSessionLost() {
+        guard !sessionLost else { return }
+        sessionLost = true
+        if let onSessionLost {
+            MTPQueue.queue.async { onSessionLost(self) }
+        }
     }
 
     private func refreshStorages() {
@@ -267,6 +311,33 @@ final class MTPBackend: DeviceBackend, @unchecked Sendable {
                 throw failure("Downloading \(path) failed")
             }
         }
+    }
+
+    /// Asks the phone for its own thumbnail (MTP GetThumb, generated by
+    /// Android's MediaProvider for photos and videos); falls back to
+    /// downloading the image.
+    func thumbnail(_ path: VPath, maxPixelSize: Int) throws -> Data? {
+        guard ThumbnailSupport.hasThumbnail(path.name) else { return nil }
+        let native: Data? = try MTPQueue.sync {
+            let device = try requireDevice()
+            let ref = try resolve(path)
+            guard !ref.isDirectory else { return nil }
+            var bytes: UnsafeMutablePointer<UInt8>?
+            var size: UInt32 = 0
+            guard LIBMTP_Get_Thumbnail(device, ref.handle, &bytes, &size) == 0, let bytes, size > 0 else {
+                free(bytes)
+                // "No thumbnail" is normal; only a dead session is an error.
+                let error = failure("Thumbnail for \(path)")
+                if error.code == .deviceUnavailable { throw error }
+                return nil
+            }
+            defer { free(bytes) }
+            return Data(bytes: bytes, count: Int(size))
+        }
+        if let native, let thumbnail = Thumbnailer.fromData(native, maxPixelSize: maxPixelSize) {
+            return thumbnail
+        }
+        return try thumbnailByDownloading(path, maxPixelSize: maxPixelSize)
     }
 
     func upload(from local: URL, to path: VPath) throws -> Entry {

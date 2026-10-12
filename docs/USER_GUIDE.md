@@ -75,7 +75,7 @@ If both options are available, PortHole uses ADB. You can change this in Setting
 - **Open:** click the 📁 button next to the phone in the menu, or pick it in Finder's sidebar.
 - **Storage:** inside you'll find **Internal storage** (called *Internal shared storage* over MTP) and any SD card.
 - **Copy to the phone:** drag files into a folder. They upload in the background.
-- **Copy from the phone:** open or drag out a file. It downloads on demand.
+- **Copy from the phone:** open or drag out a file. It downloads on demand. Photos and videos show thumbnails without being downloaded (videos only over MTP).
 - **Rename, move, new folder, delete** all work as usual. ⚠️ The phone has no Trash: **deleting removes files from the phone right away.**
 - **Changes made on the phone** appear in Finder within about 30 seconds, or right away when you click ↻ in the menu.
 - **Unmount:** click ⏏ in the menu, or just unplug the phone.
@@ -130,6 +130,12 @@ Open the menu, then **Settings…**:
 
 **Files changed on the phone don't appear**
 - Click ↻ in the menu, or lower the interval in Settings.
+
+**Opening a photo freezes for a few seconds** (MTP)
+- Opening photos in **Preview** wakes macOS's camera service, which resets the phone's USB connection. PortHole reconnects and retries automatically, usually within a couple of seconds. If it keeps happening, use ADB, which isn't affected.
+
+**Folders named like “PortHole-RMX5085 (13-10-26 12:16 AM)”** in `~/Library/CloudStorage`
+- Versions before 0.1.3 left copies of opened files behind when a phone was unmounted. They're plain copies, so you can delete those folders.
 
 **Photos copied over ADB don't show in the phone's Gallery**
 - Over ADB, Android doesn't index new files right away. Restart the phone or use MTP for media.

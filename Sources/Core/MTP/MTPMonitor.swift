@@ -22,6 +22,11 @@ final class MTPMonitor: @unchecked Sendable {
     // On MTPQueue.
     private var opened: [String: MTPBackend] = [:]
     private var failed: [String: (name: String, message: String)] = [:]
+    /// Devices whose session died, by device ID, while they are being reopened.
+    /// They stay in the emitted state (dead, so calls fail fast) so the app
+    /// keeps the Finder location mounted until the replacement arrives.
+    private var recovering: [String: (backend: MTPBackend, deadline: Date)] = [:]
+    private static let recoveryWindow: TimeInterval = 15
     private var enabled = false
 
     init(onChange: @escaping @Sendable ([DeviceState]) -> Void) {
@@ -41,6 +46,7 @@ final class MTPMonitor: @unchecked Sendable {
             for backend in self.opened.values { backend.closeOnQueue() }
             self.opened = [:]
             self.failed = [:]
+            self.recovering = [:]
             self.emit()
         }
         notifyQueue.async {
@@ -139,6 +145,11 @@ final class MTPMonitor: @unchecked Sendable {
             opened[key] = nil
         }
         failed = failed.filter { present[$0.key] != nil }
+        let now = Date()
+        for (id, entry) in recovering where entry.deadline < now {
+            log.error("Could not reopen \(id, privacy: .public) after its session was lost")
+            recovering[id] = nil
+        }
 
         let fresh = present.filter { opened[$0.key] == nil && failed[$0.key] == nil }
         // Open immediately after freeing the phone, before ptpcamerad relaunches.
@@ -148,8 +159,10 @@ final class MTPMonitor: @unchecked Sendable {
             copy.initialize(to: raw)
             do {
                 let backend = try MTPBackend(raw: copy, usbKey: key)
+                backend.onSessionLost = { [weak self] lost in self?.sessionLost(lost) }
                 log.info("MTP device opened: \(backend.info.name, privacy: .public)")
                 opened[key] = backend
+                recovering[backend.info.id] = nil
             } catch {
                 let vendor = raw.device_entry.vendor.map { String(cString: $0) }
                 let product = raw.device_entry.product.map { String(cString: $0) }
@@ -161,8 +174,26 @@ final class MTPMonitor: @unchecked Sendable {
         emit()
     }
 
+    /// An operation found the MTP session dead. Typical cause: opening a photo
+    /// in Preview makes ptpcamerad try the phone, fail because we hold it, and
+    /// reset its USB connection. Close the dead handle and reopen the device.
+    private func sessionLost(_ backend: MTPBackend) {
+        guard enabled, opened[backend.usbKey] === backend else { return }
+        log.error("MTP session lost for \(backend.info.name, privacy: .public); reopening")
+        opened[backend.usbKey] = nil
+        backend.closeOnQueue()
+        recovering[backend.info.id] = (backend, Date().addingTimeInterval(Self.recoveryWindow))
+        // The phone may re-enumerate after the reset; try soon, and once more
+        // after the window to drop it if it never came back.
+        scheduleScan(after: 1.5)
+        notifyQueue.asyncAfter(deadline: .now() + Self.recoveryWindow + 1) { [weak self] in
+            MTPQueue.queue.async { self?.scan() }
+        }
+    }
+
     private func emit() {
         let states: [DeviceState] = opened.values.map { .ready($0) }
+            + recovering.values.map { .ready($0.backend) }
             + failed.map { .failed(usbKey: $0.key, name: $0.value.name, message: $0.value.message) }
         onChange(states)
     }

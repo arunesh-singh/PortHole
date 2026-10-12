@@ -30,6 +30,8 @@ protocol DeviceBackend: AnyObject, Sendable {
     /// Deletes a file or a directory tree.
     func delete(_ path: VPath) throws
     func move(_ from: VPath, to: VPath) throws -> Entry
+    /// JPEG thumbnail no larger than `maxPixelSize`, or nil if there is none.
+    func thumbnail(_ path: VPath, maxPixelSize: Int) throws -> Data?
     func close()
 }
 

@@ -118,6 +118,24 @@ final class ADBBackend: DeviceBackend, @unchecked Sendable {
         return entry(name: path.name, result)
     }
 
+    /// Camera photos carry an EXIF thumbnail near the start of the file, so the
+    /// first 256 KB usually suffices; otherwise the image is downloaded and
+    /// scaled. Videos get no thumbnail over adb.
+    func thumbnail(_ path: VPath, maxPixelSize: Int) throws -> Data? {
+        guard ThumbnailSupport.isImage(path.name) else { return nil }
+        let prefixLimit = 256 * 1024
+        let prefix = try session().receivePrefix(try devicePath(path), maxBytes: prefixLimit)
+        if prefix.count < prefixLimit {
+            return Thumbnailer.fromData(prefix, maxPixelSize: maxPixelSize)  // that was the whole file
+        }
+        // Phones typically embed 160–320 px EXIF thumbnails; good enough for icons.
+        if let embedded = Thumbnailer.embedded(in: prefix, maxPixelSize: maxPixelSize,
+                                               minPixelSize: min(maxPixelSize / 2, 160)) {
+            return embedded
+        }
+        return try thumbnailByDownloading(path, maxPixelSize: maxPixelSize)
+    }
+
     func download(_ path: VPath, to local: URL) throws {
         let entry = try stat(path)
         guard !entry.isDirectory else { throw WireError(.isDirectory, "\(path) is a folder") }

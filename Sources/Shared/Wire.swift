@@ -87,18 +87,22 @@ struct WireError: Error, Codable, Sendable, LocalizedError {
 enum IPCRequest: Codable, Sendable {
     case list(device: String, path: String)
     case stat(device: String, path: String)
-    /// Device file → local file at `destination` (inside the group container).
+    /// Device file → local file at `destination` (inside `transfersURL`).
     case download(device: String, path: String, destination: String)
     /// Local file at `source` → device file at `path`, replacing any existing file.
     case upload(device: String, source: String, path: String)
     case makeDirectory(device: String, path: String)
     case delete(device: String, path: String)
     case move(device: String, from: String, to: String)
+    /// JPEG thumbnail bytes (small enough to travel inline).
+    case thumbnail(device: String, path: String, maxPixelSize: Int)
 }
 
 enum IPCResponse: Codable, Sendable {
     case entries([Entry])
     case entry(Entry)
     case ok
+    /// Thumbnail bytes; `nil` when the file has none.
+    case data(Data?)
     case failure(WireError)
 }

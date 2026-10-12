@@ -18,6 +18,8 @@ final class ADBSyncSession {
     private let socket: Socket
     private let v2: Bool
     private static let chunk = 64 * 1024
+    /// Set when a transfer was abandoned mid-stream; the session is unusable.
+    private var abandoned = false
 
     init(serial: String, useV2: Bool) throws {
         socket = try ADBHost.request("host:transport:\(serial)")
@@ -26,8 +28,8 @@ final class ADBSyncSession {
     }
 
     deinit {
-        // QUIT lets adbd end the session cleanly.
-        try? sendRequest("QUIT", Data())
+        // QUIT lets adbd end the session cleanly (pointless mid-transfer).
+        if !abandoned { try? sendRequest("QUIT", Data()) }
         socket.close()
     }
 
@@ -147,6 +149,30 @@ final class ADBSyncSession {
                 throw WireError(.io, "adb: unexpected recv reply \(id)")
             }
         }
+    }
+
+    /// The first `maxBytes` (or fewer) of a file. Abandons the transfer once
+    /// enough has arrived, so the session must not be reused afterwards.
+    func receivePrefix(_ path: String, maxBytes: Int) throws -> Data {
+        try sendRequest("RECV", path: path)
+        var result = Data()
+        while result.count < maxBytes {
+            let id = try readID()
+            switch id {
+            case "DATA":
+                let length = try socket.read(count: 4).readLE(UInt32.self, at: 0)
+                result.append(try socket.read(count: Int(length)))
+            case "DONE":
+                _ = try socket.read(count: 4)
+                return result
+            case "FAIL":
+                throw try readFailure()
+            default:
+                throw WireError(.io, "adb: unexpected recv reply \(id)")
+            }
+        }
+        abandoned = true
+        return result
     }
 
     func send(_ local: URL, to path: String, mode: UInt32 = 0o100644) throws {
