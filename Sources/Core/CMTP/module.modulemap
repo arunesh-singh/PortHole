@@ -1,0 +1,5 @@
+module CMTP [system] {
+    header "../../../Vendor/include/libmtp.h"
+    link "iconv"
+    export *
+}

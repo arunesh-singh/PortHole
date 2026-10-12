@@ -1,0 +1,48 @@
+name: Bug report
+description: Something doesn't work
+labels: [bug]
+body:
+  - type: textarea
+    id: what
+    attributes:
+      label: What happened?
+      description: What you did, what you expected, what you saw instead.
+    validations:
+      required: true
+  - type: input
+    id: macos
+    attributes:
+      label: macOS version
+      placeholder: "e.g. macOS 15.4 (Apple Silicon)"
+    validations:
+      required: true
+  - type: input
+    id: phone
+    attributes:
+      label: Phone model and Android version
+      placeholder: "e.g. Pixel 8, Android 15"
+    validations:
+      required: true
+  - type: dropdown
+    id: transport
+    attributes:
+      label: Connection
+      options:
+        - MTP (File transfer, USB)
+        - ADB over USB
+        - ADB over Wi-Fi
+    validations:
+      required: true
+  - type: input
+    id: version
+    attributes:
+      label: PortHole version
+      placeholder: "e.g. 0.1.0 (from the DMG name or About)"
+  - type: textarea
+    id: logs
+    attributes:
+      label: Logs
+      description: |
+        Output of:
+        log show --last 5m --info --predicate 'subsystem == "com.arunesh.porthole"'
+      render: text

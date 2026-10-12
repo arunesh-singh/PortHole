@@ -1,0 +1,5 @@
+blank_issues_enabled: true
+contact_links:
+  - name: User Guide & troubleshooting
+    url: https://github.com/arunesh-singh/PortHole/blob/main/docs/USER_GUIDE.md#7-troubleshooting
+    about: Most setup problems are covered here.

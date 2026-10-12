@@ -1,0 +1,39 @@
+name: Release
+
+# Push a tag like v0.2.0 (matching MARKETING_VERSION in project.yml) to build a
+# universal ad-hoc DMG and publish it as a GitHub pre-release.
+on:
+  push:
+    tags: ['v*']
+
+permissions:
+  contents: write
+
+jobs:
+  release:
+    runs-on: macos-15
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Check tag matches MARKETING_VERSION
+        run: |
+          version=$(awk -F'"' '/MARKETING_VERSION/ {print $2; exit}' project.yml)
+          if [ "v$version" != "$GITHUB_REF_NAME" ]; then
+            echo "::error::tag $GITHUB_REF_NAME does not match MARKETING_VERSION $version in project.yml"
+            exit 1
+          fi
+
+      - name: Install tools
+        run: brew install xcodegen pkgconf
+
+      - name: Cache Vendor (libusb + libmtp)
+        uses: actions/cache@v4
+        with:
+          path: Vendor
+          key: vendor-${{ runner.os }}-${{ hashFiles('scripts/build-deps.sh') }}
+
+      - name: Build and publish
+        env:
+          GH_TOKEN: ${{ github.token }}
+          GITHUB_REPO: ${{ github.repository }}
+        run: scripts/release.sh --adhoc --publish

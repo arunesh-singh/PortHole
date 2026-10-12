@@ -1,0 +1,94 @@
+name: PortHole
+options:
+  bundleIdPrefix: com.arunesh.porthole
+  deploymentTarget:
+    macOS: "14.0"
+  createIntermediateGroups: true
+
+settings:
+  base:
+    DEVELOPMENT_TEAM: X44NGG35R7
+    CODE_SIGN_STYLE: Automatic
+    SWIFT_VERSION: "5.0"
+    MACOSX_DEPLOYMENT_TARGET: "14.0"
+    ENABLE_HARDENED_RUNTIME: YES
+    MARKETING_VERSION: "0.1.0"
+    CURRENT_PROJECT_VERSION: "1"
+    DEAD_CODE_STRIPPING: YES
+  configs:
+    Release:
+      # Keeps get-task-allow (debugger attach) out of shipped builds.
+      CODE_SIGN_INJECT_BASE_ENTITLEMENTS: NO
+
+# libmtp + libusb are linked statically from Vendor/ (built by
+# scripts/build-deps.sh as universal archives for macOS 14+), so the app bundle
+# has no third-party dylibs to embed or re-sign.
+settingGroups:
+  libmtp:
+    SWIFT_INCLUDE_PATHS: $(SRCROOT)/Sources/Core/CMTP
+    OTHER_LDFLAGS:
+      - $(SRCROOT)/Vendor/lib/libmtp.a
+      - $(SRCROOT)/Vendor/lib/libusb-1.0.a
+      - -framework
+      - IOKit
+      - -framework
+      - CoreFoundation
+      - -framework
+      - Security
+      - -lobjc
+      - -liconv
+
+targets:
+  PortHole:
+    type: application
+    platform: macOS
+    sources:
+      - Sources/App
+      - Sources/Shared
+      - path: Sources/Core
+        excludes:
+          - CMTP
+    dependencies:
+      - target: PortHoleFileProvider
+        embed: true
+        codeSign: true
+    settings:
+      groups: [libmtp]
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.arunesh.porthole
+        PRODUCT_NAME: PortHole
+        INFOPLIST_FILE: Sources/App/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Sources/App/PortHole.entitlements
+        ASSETCATALOG_COMPILER_APPICON_NAME: ""
+
+  PortHoleFileProvider:
+    type: app-extension
+    platform: macOS
+    sources:
+      - Sources/Extension
+      - Sources/Shared
+    settings:
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.arunesh.porthole.fileprovider
+        PRODUCT_NAME: PortHoleFileProvider
+        INFOPLIST_FILE: Sources/Extension/Info.plist
+        CODE_SIGN_ENTITLEMENTS: Sources/Extension/PortHoleFileProvider.entitlements
+        OTHER_LDFLAGS: [-lsqlite3]
+
+  porthole:
+    type: tool
+    platform: macOS
+    sources:
+      - Sources/CLI
+      - Sources/Shared
+      - path: Sources/Core
+        excludes:
+          - CMTP
+    settings:
+      groups: [libmtp]
+      base:
+        PRODUCT_BUNDLE_IDENTIFIER: com.arunesh.porthole.cli
+        CODE_SIGN_STYLE: Manual
+        CODE_SIGN_IDENTITY: "-"
+        DEVELOPMENT_TEAM: ""
+        ENABLE_HARDENED_RUNTIME: NO

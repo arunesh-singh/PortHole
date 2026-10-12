@@ -1,0 +1,7 @@
+build/
+DerivedData/
+Vendor/
+PortHole.xcodeproj/
+*.xcuserstate
+xcuserdata/
+.DS_Store
