@@ -13,7 +13,7 @@ jobs:
   release:
     runs-on: macos-15
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v7
 
       - name: Check tag matches MARKETING_VERSION
         run: |
@@ -27,7 +27,7 @@ jobs:
         run: brew install xcodegen pkgconf
 
       - name: Cache Vendor (libusb + libmtp)
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: Vendor
           key: vendor-${{ runner.os }}-${{ hashFiles('scripts/build-deps.sh') }}
