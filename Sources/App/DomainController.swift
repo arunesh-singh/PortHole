@@ -59,11 +59,21 @@ final class DomainController {
         }
     }
 
+    /// Unmounts everything on quit. Removes each domain individually:
+    /// `removeAllDomains()` reports success but leaves domains in place
+    /// (observed on macOS 26/27), while per-domain removal works.
     func removeAll() async {
-        let ids = Array(mounted.keys)
         mounted = [:]
-        try? await NSFileProviderManager.removeAllDomains()
-        ids.forEach(PortHoleConstants.resetDomainState)
+        let domains = (try? await NSFileProviderManager.domains()) ?? []
+        for domain in domains {
+            do {
+                _ = try await NSFileProviderManager.remove(domain, mode: .preserveDirtyUserData)
+            } catch {
+                log.error("Removing \(domain.identifier.rawValue, privacy: .public) failed: \(error.localizedDescription, privacy: .public)")
+            }
+            PortHoleConstants.resetDomainState(domainID: domain.identifier.rawValue)
+        }
+        log.info("Removed \(domains.count) domain(s)")
     }
 
     func openInFinder(_ id: String) async {

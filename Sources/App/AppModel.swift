@@ -56,6 +56,7 @@ final class AppModel {
     @ObservationIgnored private var refreshTimer: Timer?
     @ObservationIgnored private var reconciling = false
     @ObservationIgnored private var reconcileAgain = false
+    @ObservationIgnored private var shuttingDown = false
 
     // ADB state
     private var adbRecords: [ADBHost.DeviceRecord] = []
@@ -106,8 +107,12 @@ final class AppModel {
 
     /// Called on quit: unmount everything so Finder does not show dead locations.
     func shutdown() async {
+        // Stopping the transports emits "no devices"; without this flag the
+        // resulting reconcile pass could re-add a domain while we remove them.
+        shuttingDown = true
         adbTracker?.stop()
         mtpMonitor?.stop()
+        while reconciling { try? await Task.sleep(for: .milliseconds(50)) }
         await domains.removeAll()
     }
 
@@ -226,6 +231,7 @@ final class AppModel {
     /// Brings File Provider domains in line with connected devices. Serialized:
     /// calls during a running pass trigger one more pass.
     private func reconcile() {
+        guard !shuttingDown else { return }
         guard !reconciling else {
             reconcileAgain = true
             return
