@@ -1,6 +1,10 @@
-# PortHole
+<p align="center">
+  <img src="Branding/logo.svg" width="160" alt="PortHole logo: a brass porthole with a phone seen through green glass">
+</p>
 
-**Your Android phone, right in Finder.**
+<h1 align="center">PortHole</h1>
+
+<p align="center"><b>Your Android phone, right in Finder.</b></p>
 
 PortHole is a free, open-source menu-bar app for macOS. It mounts Android phones as Finder locations, so you can browse, open, copy, rename and delete phone files like any other folder. No Android app is needed on the phone.
 

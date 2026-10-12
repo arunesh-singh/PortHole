@@ -6,7 +6,7 @@ struct PortHoleApp: App {
     @NSApplicationDelegateAdaptor(AppDelegate.self) private var delegate
 
     var body: some Scene {
-        MenuBarExtra("PortHole", systemImage: "iphone.gen3.radiowaves.left.and.right") {
+        MenuBarExtra("PortHole", image: "MenuBarIcon") {
             MenuView()
                 .environment(delegate.model)
         }

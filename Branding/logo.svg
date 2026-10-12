@@ -1,0 +1,75 @@
+<svg xmlns="http://www.w3.org/2000/svg" viewBox="192 180 640 660" width="640" height="660">
+  <!-- PortHole logo mark: a brass porthole looking into a phone. -->
+  <defs>
+    <linearGradient id="sea" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#17405E"/>
+      <stop offset="1" stop-color="#081624"/>
+    </linearGradient>
+    <linearGradient id="brass" x1="0.15" y1="0.05" x2="0.85" y2="0.95">
+      <stop offset="0" stop-color="#FBE3A0"/>
+      <stop offset="0.35" stop-color="#D9A84E"/>
+      <stop offset="0.7" stop-color="#8E621F"/>
+      <stop offset="1" stop-color="#D4A24A"/>
+    </linearGradient>
+    <radialGradient id="rivet" cx="0.35" cy="0.3" r="0.75">
+      <stop offset="0" stop-color="#FFF4CF"/>
+      <stop offset="0.45" stop-color="#D19B42"/>
+      <stop offset="1" stop-color="#6B4512"/>
+    </radialGradient>
+    <radialGradient id="glass" cx="0.4" cy="0.35" r="0.75">
+      <stop offset="0" stop-color="#86F7CB"/>
+      <stop offset="0.45" stop-color="#25B383"/>
+      <stop offset="0.8" stop-color="#0C5F4C"/>
+      <stop offset="1" stop-color="#05362F"/>
+    </radialGradient>
+    <linearGradient id="screen" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0" stop-color="#1FAE7E"/>
+      <stop offset="1" stop-color="#0B6F55"/>
+    </linearGradient>
+    <linearGradient id="glare" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#FFFFFF" stop-opacity="0.55"/>
+      <stop offset="1" stop-color="#FFFFFF" stop-opacity="0"/>
+    </linearGradient>
+    <clipPath id="porthole"><circle cx="512" cy="500" r="210"/></clipPath>
+    <filter id="iconShadow" x="-10%" y="-10%" width="120%" height="125%">
+      <feDropShadow dx="0" dy="14" stdDeviation="16" flood-color="#000" flood-opacity="0.35"/>
+    </filter>
+    <filter id="ringShadow" x="-20%" y="-20%" width="140%" height="145%">
+      <feDropShadow dx="0" dy="18" stdDeviation="18" flood-color="#000" flood-opacity="0.5"/>
+    </filter>
+  </defs>
+
+  <!-- Glass with the phone seen through it -->
+  <circle cx="512" cy="500" r="212" fill="url(#glass)"/>
+  <g clip-path="url(#porthole)">
+    <rect x="437" y="370" width="150" height="262" rx="32" fill="#F2FFF9"/>
+    <rect x="449" y="396" width="126" height="206" rx="14" fill="url(#screen)"/>
+    <rect x="497" y="381" width="30" height="7" rx="3.5" fill="#A7DCC8"/>
+    <!-- folder on the phone's screen -->
+    <path d="M478 470 h24 l9 9 h35 a7 7 0 0 1 7 7 v38 a7 7 0 0 1 -7 7 h-68 a7 7 0 0 1 -7 -7 v-47 a7 7 0 0 1 7 -7 z" fill="#F2FFF9"/>
+    <rect x="471" y="492" width="82" height="3" fill="#0B6F55" opacity="0.35"/>
+    <!-- glass glare -->
+    <path d="M330 470 A186 186 0 0 1 470 318" fill="none" stroke="url(#glare)" stroke-width="26" stroke-linecap="round"/>
+    <circle cx="352" cy="525" r="10" fill="#FFFFFF" opacity="0.35"/>
+  </g>
+
+  <!-- Brass ring -->
+  <g filter="url(#ringShadow)">
+    <circle cx="512" cy="500" r="256" fill="none" stroke="url(#brass)" stroke-width="90"/>
+  </g>
+  <circle cx="512" cy="500" r="300" fill="none" stroke="#FFF1C2" stroke-opacity="0.55" stroke-width="3"/>
+  <circle cx="512" cy="500" r="212" fill="none" stroke="#4A300B" stroke-opacity="0.85" stroke-width="7"/>
+  <circle cx="512" cy="500" r="219" fill="none" stroke="#FFE7A8" stroke-opacity="0.35" stroke-width="2"/>
+
+  <!-- Rivets (8, offset so none sits at 12 o'clock) -->
+  <g>
+    <circle cx="610.0" cy="263.5" r="18" fill="url(#rivet)"/>
+    <circle cx="748.5" cy="402.0" r="18" fill="url(#rivet)"/>
+    <circle cx="748.5" cy="598.0" r="18" fill="url(#rivet)"/>
+    <circle cx="610.0" cy="736.5" r="18" fill="url(#rivet)"/>
+    <circle cx="414.0" cy="736.5" r="18" fill="url(#rivet)"/>
+    <circle cx="275.5" cy="598.0" r="18" fill="url(#rivet)"/>
+    <circle cx="275.5" cy="402.0" r="18" fill="url(#rivet)"/>
+    <circle cx="414.0" cy="263.5" r="18" fill="url(#rivet)"/>
+  </g>
+</svg>
