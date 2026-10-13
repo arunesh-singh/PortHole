@@ -34,6 +34,12 @@ final class FileProviderItem: NSObject, NSFileProviderItem {
             : mutable.union([.allowsReading, .allowsWriting])
     }
 
+    /// Download on read, and let macOS (and PortHole's cache limit) evict the
+    /// local copy: the phone always has the original. Without an explicit
+    /// policy, eviction failed with NSFileProviderError.nonEvictable and
+    /// copying a camera roll filled the internal disk.
+    var contentPolicy: NSFileProviderContentPolicy { .downloadLazily }
+
     var itemVersion: NSFileProviderItemVersion {
         let content = entry.isDirectory ? "dir" : "\(entry.size):\(entry.mtime)"
         return NSFileProviderItemVersion(contentVersion: Data(content.utf8),

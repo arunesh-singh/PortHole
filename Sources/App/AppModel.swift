@@ -11,6 +11,8 @@ enum SettingsKey {
     static let adbPath = "adbPath"
     static let refreshInterval = "refreshInterval"
     static let openFinderOnMount = "openFinderOnMount"
+    /// Max size of downloaded copies of phone files kept on the Mac.
+    static let cacheLimitMB = "cacheLimitMB"
 
     static func registerDefaults() {
         UserDefaults.standard.register(defaults: [
@@ -20,6 +22,7 @@ enum SettingsKey {
             adbPath: "",
             refreshInterval: 30,
             openFinderOnMount: false,
+            cacheLimitMB: 2048,
         ])
     }
 }
@@ -54,6 +57,9 @@ final class AppModel {
     @ObservationIgnored private var adbTracker: ADBTracker?
     @ObservationIgnored private var mtpMonitor: MTPMonitor?
     @ObservationIgnored private var refreshTimer: Timer?
+    @ObservationIgnored private let cacheTrimmer = CacheTrimmer()
+    @ObservationIgnored private var cacheTimer: Timer?
+    @ObservationIgnored private var materializedObserver: NSObjectProtocol?
     @ObservationIgnored private var reconciling = false
     @ObservationIgnored private var reconcileAgain = false
     @ObservationIgnored private var shuttingDown = false
@@ -159,6 +165,7 @@ final class AppModel {
 
         refreshTimer?.invalidate()
         refreshTimer = nil
+        startCacheTrimming()
         let interval = defaults.integer(forKey: SettingsKey.refreshInterval)
         if interval > 0 {
             refreshTimer = Timer.scheduledTimer(withTimeInterval: TimeInterval(interval), repeats: true) { [weak self] _ in
@@ -167,6 +174,28 @@ final class AppModel {
         }
         updateMTPPolicy()
         reconcile()
+    }
+
+    /// Trims downloaded copies whenever the downloaded set changes (one pass in
+    /// flight at a time, see `CacheTrimmer`), and every 20 s as a backstop so
+    /// files skipped while open mid-copy are retried.
+    private func startCacheTrimming() {
+        if materializedObserver == nil {
+            materializedObserver = NotificationCenter.default.addObserver(
+                forName: .fileProviderMaterializedSetDidChange, object: nil, queue: .main
+            ) { [weak self] _ in Task { @MainActor in self?.trimCache() } }
+        }
+        cacheTimer?.invalidate()
+        cacheTimer = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
+            Task { @MainActor in self?.trimCache() }
+        }
+        trimCache()
+    }
+
+    private func trimCache() {
+        guard !shuttingDown, !domains.mounted.isEmpty else { return }
+        let limit = Int64(max(defaults.integer(forKey: SettingsKey.cacheLimitMB), 0)) * 1_048_576
+        cacheTrimmer.trim(domains: domains.mountedDomains, limitBytes: limit)
     }
 
     nonisolated static func resolvedADBPath() -> String? {

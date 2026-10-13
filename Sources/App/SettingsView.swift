@@ -8,6 +8,7 @@ struct SettingsView: View {
     @AppStorage(SettingsKey.adbPath) private var adbPath = ""
     @AppStorage(SettingsKey.refreshInterval) private var refreshInterval = 30
     @AppStorage(SettingsKey.openFinderOnMount) private var openFinderOnMount = false
+    @AppStorage(SettingsKey.cacheLimitMB) private var cacheLimitMB = 2048
 
     var body: some View {
         @Bindable var model = model
@@ -28,6 +29,13 @@ struct SettingsView: View {
                     Text("Only when I click Refresh").tag(0)
                 }
                 Toggle("Open in Finder when a phone is mounted", isOn: $openFinderOnMount)
+                Picker("Keep opened phone files on this Mac", selection: $cacheLimitMB) {
+                    Text("Up to 500 MB").tag(500)
+                    Text("Up to 2 GB").tag(2048)
+                    Text("Up to 10 GB").tag(10240)
+                }
+                Text("Older copies are removed from the Mac automatically (never from the phone), and all of them when the Mac is low on space.")
+                    .font(.caption).foregroundStyle(.secondary)
             }
             Section {
                 Toggle("Launch at login", isOn: $model.launchAtLogin)
@@ -39,5 +47,6 @@ struct SettingsView: View {
         .onChange(of: enableMTP) { model.applySettings() }
         .onChange(of: preferADB) { model.applySettings() }
         .onChange(of: refreshInterval) { model.applySettings() }
+        .onChange(of: cacheLimitMB) { model.applySettings() }
     }
 }

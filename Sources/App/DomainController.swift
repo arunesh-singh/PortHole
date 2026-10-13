@@ -118,6 +118,10 @@ final class DomainController {
         mounted.keys.forEach(refresh)
     }
 
+    var mountedDomains: [NSFileProviderDomain] {
+        mounted.keys.map { NSFileProviderDomain(identifier: NSFileProviderDomainIdentifier($0), displayName: $0) }
+    }
+
     private func manager(_ id: String) -> NSFileProviderManager? {
         guard mounted[id] != nil else { return nil }
         return NSFileProviderManager(for: NSFileProviderDomain(identifier: NSFileProviderDomainIdentifier(id),

@@ -76,6 +76,7 @@ If both options are available, PortHole uses ADB. You can change this in Setting
 - **Storage:** inside you'll find **Internal storage** (called *Internal shared storage* over MTP) and any SD card.
 - **Copy to the phone:** drag files into a folder. They upload in the background.
 - **Copy from the phone:** open or drag out a file. It downloads on demand. Photos and videos show thumbnails without being downloaded (videos only over MTP).
+- **Disk space:** Finder can only read a phone file after downloading a copy to your Mac. PortHole keeps those copies under **Settings › Keep opened phone files on this Mac** (2 GB by default) and removes them all when your Mac has less than 5 GB free. Removing a copy never touches the phone. Copying a whole camera roll to another drive is safe.
 - **Rename, move, new folder, delete** all work as usual. ⚠️ The phone has no Trash: **deleting removes files from the phone right away.**
 - **Changes made on the phone** appear in Finder within about 30 seconds, or right away when you click ↻ in the menu.
 - **Unmount:** click ⏏ in the menu, or just unplug the phone.
@@ -136,6 +137,9 @@ Open the menu, then **Settings…**:
 
 **Folders named like “PortHole-RMX5085 (13-10-26 12:16 AM)”** in `~/Library/CloudStorage`
 - Versions before 0.1.3 left copies of opened files behind when a phone was unmounted. They're plain copies, so you can delete those folders.
+
+**My Mac's disk filled up while copying from the phone** (versions before 0.1.5)
+- Older versions kept a copy of every file you opened or copied, on the Mac's internal disk. Update to 0.1.5 or later. To free the space right away, quit PortHole from its menu (this removes the copies, not the phone's files).
 
 **Photos copied over ADB don't show in the phone's Gallery**
 - Over ADB, Android doesn't index new files right away. Restart the phone or use MTP for media.
