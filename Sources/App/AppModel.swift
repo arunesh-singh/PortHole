@@ -187,7 +187,11 @@ final class AppModel {
         }
         cacheTimer?.invalidate()
         cacheTimer = Timer.scheduledTimer(withTimeInterval: 20, repeats: true) { [weak self] _ in
-            Task { @MainActor in self?.trimCache() }
+            Task { @MainActor in
+                // Also re-adds domains macOS dropped (see DomainController.sync).
+                self?.reconcile()
+                self?.trimCache()
+            }
         }
         trimCache()
     }
@@ -408,7 +412,13 @@ final class AppModel {
     }
 
     func open(_ id: String) {
-        Task { await domains.openInFinder(id) }
+        Task {
+            if await domains.openInFinder(id) { return }
+            // The location is gone (macOS dropped the domain); remount and retry.
+            reconcile()
+            while reconciling { try? await Task.sleep(for: .milliseconds(100)) }
+            await domains.openInFinder(id)
+        }
     }
 
     func refresh(_ id: String) {

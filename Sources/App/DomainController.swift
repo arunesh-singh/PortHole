@@ -9,7 +9,17 @@ final class DomainController {
     private(set) var mounted: [String: DeviceInfo] = [:]
 
     /// Adds domains for `desired` devices and removes every other domain.
+    /// Starts from the domains macOS actually has: the system can drop a domain
+    /// behind our back (e.g. when LaunchServices re-registers the extension
+    /// right after launch), and those must be re-added, not assumed mounted.
     func sync(desired: [DeviceInfo]) async {
+        if !mounted.isEmpty, let system = try? await NSFileProviderManager.domains() {
+            let present = Set(system.map(\.identifier.rawValue))
+            for id in mounted.keys where !present.contains(id) {
+                log.error("Domain \(id, privacy: .public) disappeared from the system; re-adding")
+                mounted[id] = nil
+            }
+        }
         let wanted = Dictionary(desired.map { ($0.id, $0) }, uniquingKeysWith: { first, _ in first })
         for id in mounted.keys where wanted[id] == nil {
             await remove(id)
@@ -96,17 +106,20 @@ final class DomainController {
         log.info("Removed \(domains.count) domain(s)")
     }
 
-    func openInFinder(_ id: String) async {
-        guard let manager = manager(id) else { return }
+    /// Opens the device's Finder location; false if it never became available.
+    @discardableResult
+    func openInFinder(_ id: String) async -> Bool {
+        guard let manager = manager(id) else { return false }
         // The domain's folder appears shortly after it is added.
         for _ in 0..<20 {
             if let url = try? await manager.getUserVisibleURL(for: .rootContainer) {
                 NSWorkspace.shared.open(url)
-                return
+                return true
             }
             try? await Task.sleep(for: .milliseconds(250))
         }
         log.error("No user-visible URL for \(id, privacy: .public)")
+        return false
     }
 
     /// Asks the extension to re-check device contents for changes made on the phone.
